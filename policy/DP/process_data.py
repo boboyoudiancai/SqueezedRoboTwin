@@ -51,11 +51,13 @@ def main():
     num = args.expert_data_num
     task_config = args.task_config
 
-    load_dir = "../../data/" + str(task_name) + "/" + str(task_config)
+    # task_config 格式: "aloha-agilex_clean" 或 "aloha-agilex_randomized"
+    # 需要组合成: "aloha-agilex_clean_50" 或 "aloha-agilex_randomized_500"
+    load_dir = f"/home/wangbo/data/dataset/{task_name}/{task_config}_{num}"
 
     total_count = 0
 
-    save_dir = f"./data/{task_name}-{task_config}-{num}.zarr"
+    save_dir = f"/home/wangbo/data/dataset/{task_name}/{task_config}_{num}.zarr"
 
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)

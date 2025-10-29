@@ -55,6 +55,52 @@ class RobotWorkspace(BaseWorkspace):
         self.global_step = 0
         self.epoch = 0
 
+    def _get_checkpoint_dir(self, task_name: str, save_name: str, seed: int) -> str:
+        """
+        Determine checkpoint directory based on policy type.
+
+        For standard DP:
+            checkpoints/{task_name}/{save_name}-{seed}
+
+        For squeezed DP:
+            checkpoints_squeezed_s{strength}_q{quantum}/{task_name}/{save_name}-{seed}
+
+        Args:
+            task_name: Task name (e.g., 'click_bell')
+            save_name: Dataset name (e.g., 'aloha-agilex_clean_50')
+            seed: Random seed
+
+        Returns:
+            Checkpoint directory path (without filename)
+        """
+        # Check if model has noise_squeezer attribute (squeezed policy)
+        if hasattr(self.model, 'noise_squeezer') and self.model.noise_squeezer is not None:
+            # Squeezed DP - extract squeezing parameters
+            squeezer = self.model.noise_squeezer
+            strength = squeezer.squeeze_strength
+            quantum = 'q1' if squeezer.quantum_limited else 'q0'
+
+            # Format strength: remove minus sign and decimal point
+            # e.g., -0.8 -> 'n08', -1.5 -> 'n15'
+            if strength < 0:
+                strength_str = f"n{abs(strength):.2f}".replace('.', '')
+            else:
+                strength_str = f"p{strength:.2f}".replace('.', '')
+
+            checkpoint_base = f"checkpoints_squeezed_s{strength_str}_{quantum}"
+            checkpoint_dir = f"{checkpoint_base}/{task_name}/{save_name}-{seed}"
+
+            print(f"[Checkpoint] Squeezed DP detected:")
+            print(f"  Squeeze strength: {strength}")
+            print(f"  Quantum limited: {squeezer.quantum_limited}")
+            print(f"  Saving to: {checkpoint_dir}")
+        else:
+            # Standard DP
+            checkpoint_dir = f"checkpoints/{task_name}/{save_name}-{seed}"
+            print(f"[Checkpoint] Standard DP detected, saving to: {checkpoint_dir}")
+
+        return checkpoint_dir
+
     def run(self):
         cfg = copy.deepcopy(self.cfg)
         seed = cfg.training.seed
@@ -262,7 +308,11 @@ class RobotWorkspace(BaseWorkspace):
                 if ((self.epoch + 1) % cfg.training.checkpoint_every) == 0:
                     # checkpointing
                     save_name = pathlib.Path(self.cfg.task.dataset.zarr_path).stem
-                    self.save_checkpoint(f"checkpoints/{save_name}-{seed}/{self.epoch + 1}.ckpt")  # TODO
+                    task_name = self.cfg.task_name  # 获取任务名
+
+                    # Determine checkpoint directory based on policy type
+                    checkpoint_dir = self._get_checkpoint_dir(task_name, save_name, seed)
+                    self.save_checkpoint(f"{checkpoint_dir}/{self.epoch + 1}.ckpt")
 
                 # ========= eval end for this epoch ==========
                 policy.train()

@@ -3,6 +3,7 @@ data/*
 !data/process_stuck.py
 __pycache__/
 **/checkpoints/
+**/checkpoints_*/
 result/
 envs/curobo
 *.zip
@@ -28,3 +29,18 @@ envs/curobo/*
 
 /*.json*
 /*.txt
+
+# Model files
+*.pth
+*.pt
+*.ckpt
+*.pkl
+*.npy
+*.npz
+*.h5
+*.hdf5
+
+# PCA results (large data)
+pca/results/
+pca/*.npy
+pca/*.pkl

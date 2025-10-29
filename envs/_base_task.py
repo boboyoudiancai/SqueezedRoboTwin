@@ -110,6 +110,8 @@ class Base_Task(gym.Env):
         self.eval_success = False
         self.table_z_bias = (np.random.uniform(low=-self.random_table_height, high=0) + table_height_bias)  # TODO
         self.need_plan = kwags.get("need_plan", True)
+        self.eval_video_camera_type = kwags.get("eval_video_camera_type", "head_camera")  # 默认使用head_camera
+        self.disable_success_check = kwags.get("disable_success_check", False)  # PCA可视化时禁用成功检查
         self.left_joint_path = kwags.get("left_joint_path", [])
         self.right_joint_path = kwags.get("right_joint_path", [])
         self.left_cnt = 0
@@ -1477,12 +1479,28 @@ class Base_Task(gym.Env):
         return True  # TODO: maybe need try error
 
     def take_action(self, action, action_type:Literal['qpos', 'ee']='qpos'):  # action_type: qpos or ee
+        # 调试：检查入口条件
+        if self.take_action_cnt == 0:
+            print(f"\n[调试 take_action] 入口检查:")
+            print(f"  - take_action_cnt: {self.take_action_cnt}")
+            print(f"  - step_lim: {self.step_lim}")
+            print(f"  - eval_success: {self.eval_success}")
+            print(f"  - action shape: {action.shape}")
+            print(f"  - action type: {action_type}")
+
         if self.take_action_cnt == self.step_lim or self.eval_success:
+            if self.take_action_cnt == 0:
+                print(f"⚠️  [调试] take_action 被跳过! (take_action_cnt={self.take_action_cnt}, step_lim={self.step_lim}, eval_success={self.eval_success})")
             return
 
         eval_video_freq = 1  # fixed
         if (self.eval_video_path is not None and self.take_action_cnt % eval_video_freq == 0):
-            self.eval_video_ffmpeg.stdin.write(self.now_obs["observation"]["head_camera"]["rgb"].tobytes())
+            # 支持配置化选择相机：head_camera或third_view
+            if self.eval_video_camera_type == "third_view":
+                rgb_data = self.now_obs.get("third_view_rgb")
+            else:
+                rgb_data = self.now_obs["observation"][self.eval_video_camera_type]["rgb"]
+            self.eval_video_ffmpeg.stdin.write(rgb_data.tobytes())
 
         self.take_action_cnt += 1
         print(f"step: \033[92m{self.take_action_cnt} / {self.step_lim}\033[0m", end="\r")
@@ -1542,12 +1560,17 @@ class Base_Task(gym.Env):
             try:
                 times, left_pos, left_vel, acc, duration = (self.robot.left_mplib_planner.TOPP(left_path,
                                                                                             1 / 250,
-                                                                                            verbose=True))
+                                                                                            verbose=False))
                 left_result = dict()
                 left_result["position"], left_result["velocity"] = left_pos, left_vel
                 left_n_step = left_result["position"].shape[0]
+                if self.take_action_cnt < 5:  # 显示前5步
+                    print(f"[调试#{self.take_action_cnt}] Left TOPP成功: {left_n_step} steps")
             except Exception as e:
-                # print("left arm TOPP error: ", e)
+                print(f"\n⚠️  [调试#{self.take_action_cnt}] Left arm TOPP失败: {e}")
+                print(f"    - left_path shape: {left_path.shape}")
+                print(f"    - left_path[0]: {left_path[0]}")
+                print(f"    - left_path[1]: {left_path[1]}")
                 topp_left_flag = False
                 left_n_step = 50  # fixed
 
@@ -1558,12 +1581,17 @@ class Base_Task(gym.Env):
             try:
                 times, right_pos, right_vel, acc, duration = (self.robot.right_mplib_planner.TOPP(right_path,
                                                                                                 1 / 250,
-                                                                                                verbose=True))
+                                                                                                verbose=False))
                 right_result = dict()
                 right_result["position"], right_result["velocity"] = right_pos, right_vel
                 right_n_step = right_result["position"].shape[0]
+                if self.take_action_cnt == 0:
+                    print(f"[调试 take_action] Right TOPP成功: {right_n_step} steps")
             except Exception as e:
-                # print("right arm TOPP error: ", e)
+                print(f"\n⚠️  [调试] Right arm TOPP失败: {e}")
+                print(f"    - right_path shape: {right_path.shape}")
+                print(f"    - right_path[0]: {right_path[0]}")
+                print(f"    - right_path[1]: {right_path[1]}")
                 topp_right_flag = False
                 right_n_step = 50  # fixed
 
@@ -1592,6 +1620,11 @@ class Base_Task(gym.Env):
                 topp_right_flag = True
 
         # ========== Gripper ==========
+        if self.take_action_cnt == 0:
+            print(f"\n[调试] Gripper构建开始:")
+            print(f"  - left_gripper_actions: {left_gripper_actions}, shape: {left_gripper_actions.shape}")
+            print(f"  - left_gripper_path: {left_gripper_path}, shape: {left_gripper_path.shape}")
+            print(f"  - left_n_step: {left_n_step}")
 
         left_mod_num = left_n_step % len(left_gripper_actions)
         right_mod_num = right_n_step % len(right_gripper_actions)
@@ -1604,6 +1637,9 @@ class Base_Task(gym.Env):
             for i in range(len(right_gripper_actions))
         ]
 
+        if self.take_action_cnt == 0:
+            print(f"  - left_gripper_step: {left_gripper_step}")
+
         left_gripper = []
         for gripper_step in range(1, left_gripper_path.shape[0]):
             region_left_gripper = np.linspace(
@@ -1613,6 +1649,9 @@ class Base_Task(gym.Env):
             )[1:]
             left_gripper = left_gripper + region_left_gripper.tolist()
         left_gripper = np.array(left_gripper)
+
+        if self.take_action_cnt == 0:
+            print(f"  - left_gripper最终长度: {len(left_gripper)}")
 
         right_gripper = []
         for gripper_step in range(1, right_gripper_path.shape[0]):
@@ -1624,42 +1663,65 @@ class Base_Task(gym.Env):
             right_gripper = right_gripper + region_right_gripper.tolist()
         right_gripper = np.array(right_gripper)
 
+        if self.take_action_cnt == 0:
+            print(f"  - right_gripper最终长度: {len(right_gripper)}")
+            print(f"  Gripper构建完成\n")
+
         now_left_id, now_right_id = 0, 0
 
         # ========== Control Loop ==========
+        loop_count = 0
+        if self.take_action_cnt == 0:
+            print(f"\n[调试] 控制循环开始: left_n_step={left_n_step}, right_n_step={right_n_step}")
+
         while now_left_id < left_n_step or now_right_id < right_n_step:
+            loop_count += 1
 
             if (now_left_id < left_n_step and now_left_id / left_n_step <= now_right_id / right_n_step):
                 if topp_left_flag:
+                    if self.take_action_cnt == 0 and loop_count <= 3:
+                        print(f"  [步{loop_count}] 设置左臂: {left_result['position'][now_left_id][:3]}")
                     self.robot.set_arm_joints(
                         left_result["position"][now_left_id],
                         left_result["velocity"][now_left_id],
                         "left",
                     )
+                elif self.take_action_cnt == 0 and now_left_id == 0:
+                    print(f"⚠️  Left arm TOPP失败，跳过关节设置")
                 self.robot.set_gripper(left_gripper[now_left_id], "left")
 
                 now_left_id += 1
 
             if (now_right_id < right_n_step and now_right_id / right_n_step <= now_left_id / left_n_step):
                 if topp_right_flag:
+                    if self.take_action_cnt == 0 and loop_count <= 3:
+                        print(f"  [步{loop_count}] 设置右臂: {right_result['position'][now_right_id][:3]}")
                     self.robot.set_arm_joints(
                         right_result["position"][now_right_id],
                         right_result["velocity"][now_right_id],
                         "right",
                     )
+                elif self.take_action_cnt == 0 and now_right_id == 0:
+                    print(f"⚠️  Right arm TOPP失败，跳过关节设置")
                 self.robot.set_gripper(right_gripper[now_right_id], "right")
 
                 now_right_id += 1
 
             self.scene.step()
             self._update_render()
-                
-            if self.check_success():
-                self.eval_success = True
-                self.get_obs() # update obs
-                if (self.eval_video_path is not None):
-                    self.eval_video_ffmpeg.stdin.write(self.now_obs["observation"]["head_camera"]["rgb"].tobytes())
-                return
+        self.get_obs()
+
+        # 每次控制循环后都检查任务是否成功（除非禁用）
+        if not self.disable_success_check and self.check_success():
+            self.eval_success = True
+            if (self.eval_video_path is not None):
+                # 支持配置化选择相机
+                if self.eval_video_camera_type == "third_view":
+                    rgb_data = self.now_obs.get("third_view_rgb")
+                else:
+                    rgb_data = self.now_obs["observation"][self.eval_video_camera_type]["rgb"]
+                self.eval_video_ffmpeg.stdin.write(rgb_data.tobytes())
+            return
 
         self._update_render()
         if self.render_freq:  # UI

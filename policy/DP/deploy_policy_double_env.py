@@ -18,7 +18,61 @@ def encode_obs(observation):
 
 
 def get_model(usr_args):
-    ckpt_file = f"./policy/DP/checkpoints/{usr_args['task_name']}-{usr_args['ckpt_setting']}-{usr_args['expert_data_num']}-{usr_args['seed']}/{usr_args['checkpoint_num']}.ckpt"
+    """
+    Load DP model from checkpoint for double environment evaluation.
+
+    Supports both standard and squeezed DP checkpoints.
+
+    Args:
+        usr_args: Dictionary containing:
+            - task_name
+            - ckpt_setting
+            - expert_data_num
+            - seed
+            - checkpoint_num
+            - use_squeezed (optional): True for squeezed DP
+            - squeeze_strength (optional): e.g., -0.8
+            - quantum_limited (optional): True/False
+
+    Returns:
+        DP model instance
+    """
+    # Detect if using squeezed DP
+    use_squeezed = usr_args.get('use_squeezed', False)
+
+    # Construct checkpoint path based on policy type
+    if use_squeezed:
+        # Squeezed DP checkpoint path
+        strength = usr_args.get('squeeze_strength', -0.8)
+        quantum_limited = usr_args.get('quantum_limited', False)
+
+        # Format strength string
+        if strength < 0:
+            strength_str = f"n{abs(strength):.2f}".replace('.', '')
+        else:
+            strength_str = f"p{strength:.2f}".replace('.', '')
+
+        quantum_str = 'q1' if quantum_limited else 'q0'
+
+        ckpt_base = f"checkpoints_squeezed_s{strength_str}_{quantum_str}"
+        ckpt_file = (
+            f"./policy/DP/{ckpt_base}/"
+            f"{usr_args['task_name']}-{usr_args['ckpt_setting']}-"
+            f"{usr_args['expert_data_num']}-{usr_args['seed']}/"
+            f"{usr_args['checkpoint_num']}.ckpt"
+        )
+        print(f"[Deploy Double Env] Loading Squeezed DP: strength={strength}, quantum={quantum_limited}")
+    else:
+        # Standard DP checkpoint path
+        ckpt_file = (
+            f"./policy/DP/checkpoints/"
+            f"{usr_args['task_name']}-{usr_args['ckpt_setting']}-"
+            f"{usr_args['expert_data_num']}-{usr_args['seed']}/"
+            f"{usr_args['checkpoint_num']}.ckpt"
+        )
+        print(f"[Deploy Double Env] Loading Standard DP")
+
+    print(f"  Checkpoint: {ckpt_file}")
     return DP(ckpt_file)
 
 

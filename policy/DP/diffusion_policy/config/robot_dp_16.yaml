@@ -19,10 +19,13 @@ keypoint_visible_rate: 1.0
 obs_as_global_cond: True
 
 policy:
-  _target_: diffusion_policy.policy.diffusion_unet_image_policy.DiffusionUnetImagePolicy
+  # Switch between standard and squeezed diffusion policy
+  # For standard DDPM: use DiffusionUnetImagePolicy
+  # For squeezed DDPM: use DiffusionUnetSqueezedImagePolicy + configure noise_squeezer below
+  _target_: diffusion_policy.policy.diffusion_unet_squeezed_image_policy.DiffusionUnetSqueezedImagePolicy
 
   shape_meta: ${shape_meta}
-  
+
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
     num_train_timesteps: 100
@@ -60,6 +63,26 @@ policy:
   kernel_size: 5
   n_groups: 8
   cond_predict_scale: True
+
+  # Noise squeezer configuration (optional)
+  # Set to null for standard DDPM (no squeezing)
+  # Configure for squeezed DDPM with PCA-based noise reduction
+  noise_squeezer:
+    # OPTION 1: Standard DDPM (no squeezing) - Set _target_ to null:
+    _target_: null
+
+    # OPTION 2: Squeezed DDPM - Set _target_ and pca_dir via command line:
+    # Example: policy.noise_squeezer._target_=diffusion_policy.model.diffusion.noise_squeezer.NoiseSqueezer
+    #          policy.noise_squeezer.pca_dir=/path/to/pca/results/dataset_name
+
+    # _target_: diffusion_policy.model.diffusion.noise_squeezer.NoiseSqueezer
+    # pca_dir: null  # REQUIRED: Set via command line (see train.sh or SQUEEZED_DIFFUSION_USAGE.md)
+                     # Path format: /home/wangbo/RoboTwin/pca/results/{task_name}-{embodiment}_{config}_{episodes}
+                     # Must contain: pca_components_frames.npy, pca_variance_frames.npy
+                     # Run pca_analysis.py first to generate these files
+    squeeze_strength: -0.8  # Squeezing strength: 0.0 = standard, negative = squeeze
+                            # Typical range: [-1.5, 0.0]
+    quantum_limited: false  # false: simple squeeze, true: volume-preserving squeeze
 
   # scheduler.step params
   # predict_epsilon: True
